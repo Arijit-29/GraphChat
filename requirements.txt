@@ -1,0 +1,12 @@
+langgraph
+langchain-core
+langchain-groq
+langchain-community
+langchain-huggingface
+langchain-chroma
+langchain-text-splitters
+python-dotenv
+requests
+streamlit
+pypdf 
+duckduckgo-search
