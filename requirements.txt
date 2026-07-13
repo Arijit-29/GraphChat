@@ -11,4 +11,5 @@ requests
 streamlit
 pypdf 
 duckduckgo-search
+ddgs
 sentence-transformers
