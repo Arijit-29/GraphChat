@@ -117,7 +117,7 @@ def rag_tool(query: str, config: RunnableConfig) -> str:
 
 
 @tool
-def calculator(first_num: float, second_num: float, operation: str = "add") -> dict:
+def calculator(first_num: float, second_num: float, operation: str = "add") -> str:
     """
     Perform a basic arithmetic operation on two numbers.
     Supported operations: add, sub, mul, div
@@ -132,19 +132,14 @@ def calculator(first_num: float, second_num: float, operation: str = "add") -> d
             result = first_num * second_num
         elif operation == "div":
             if second_num == 0:
-                return {"error": "Division by zero is not allowed"}
+                return f"error: Division by zero is not allowed"
             result = first_num / second_num
         else:
-            return {"error": f"Unsupported operation '{operation}'"}
+            return  f"Unsupported operation '{operation}'"
 
-        return {
-            "first_num": first_num,
-            "second_num": second_num,
-            "operation": operation,
-            "result": result,
-        }
+        return str(result)
     except Exception as e:
-        return {"error": str(e)}
+        return f"Error executing calculation: {str(e)}"
 
 
 @tool
@@ -154,16 +149,23 @@ def get_stock_price(symbol: str) -> dict:
     using Alpha Vantage with API key in the URL.
     """
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}"
-    r = requests.get(url)
-    return r.json()
+    try:
+     r = requests.get(url,timeout=10)
+     r.raise_for_status()
+     return r.json()
+    except Exception as e:
+        return {"error": f"Could not fetch weather for '{symbol}': {e}"}
 
 
 @tool
 def get_weather_data(city: str) -> dict:
     """Get 2-day weather forecast for a city."""
     url = f"https://api.weatherapi.com/v1/forecast.json?key={OPEN_WEATHER_API_KEY}&q={city}&days=2"
-    data = requests.get(url).json()
-    return {
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return {
         "city": data["location"]["name"],
         "country": data["location"]["country"],
         "forecast": [
@@ -176,6 +178,8 @@ def get_weather_data(city: str) -> dict:
             for day in data["forecast"]["forecastday"]
         ],
     }
+    except Exception as e:
+     return {"error": f"Could not fetch weather for '{city}': {e}"}
 
 
 tools = [search_tool, get_stock_price, calculator, get_weather_data, rag_tool]

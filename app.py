@@ -174,7 +174,6 @@ if is_paused:
     if not needs_approval:
         # SILENT AUTO-APPROVE: The tool is fast (e.g., calculator), instantly resume
         st.session_state.stream_input = None 
-        st.rerun()
 
     else:
         # MANUAL APPROVAL: The tool requires fetching external data
@@ -201,7 +200,7 @@ if is_paused:
                             name=tc["name"]
                         )
                     )
-                chatbot.update_state(config, {"messages": rejection_messages})
+                chatbot.update_state(config, {"messages": rejection_messages}, as_node="tools")
                 st.session_state.stream_input = None
                 st.rerun()
 
@@ -233,8 +232,10 @@ if "stream_input" in st.session_state:
                 stream_mode="messages",
             ):
                 if isinstance(event_chunk, AIMessageChunk) and getattr(event_chunk, "tool_call_chunks", None):
+                    announced_ids = set()
                     for tc in event_chunk.tool_call_chunks:
-                        if tc.get("name"):
+                        if tc.get("name") and tc.get("id") not in announced_ids:
+                            announced_ids.add(tc["id"])
                             if tool_status is None:
                                 with status_container:
                                     tool_status = st.status(f"⚙️ Running `{tc['name']}`...", expanded=True)
