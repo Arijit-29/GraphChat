@@ -12,7 +12,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.types import Command,interrupt
+from langgraph.types import Command, interrupt
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 import requests
@@ -27,11 +27,16 @@ ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 os.environ["LANGSMITH_PROJECT"] = "Chatbot"
 
 
-llm = ChatGroq(model="openai/gpt-oss-120b", streaming=True, reasoning_effort="low", reasoning_format="parsed")
+llm = ChatGroq(
+    model="openai/gpt-oss-120b",
+    streaming=True,
+    reasoning_effort="low",
+    reasoning_format="parsed",
+)
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 
-search_tool = DuckDuckGoSearchRun(region="us-en")
+search_tool = DuckDuckGoSearchRun(region="us-en")  # type: ignore
 
 _THREAD_RETRIEVERS: Dict[str, Any] = {}
 _THREAD_METADATA: Dict[str, dict] = {}
@@ -69,9 +74,9 @@ def ingest_pdf(
         unique_collection_name = f"thread_{safe_thread_id}_{uuid.uuid4().hex[:8]}"
 
         vector_store = Chroma.from_documents(
-            documents=chunks, 
+            documents=chunks,
             embedding=embeddings,
-            collection_name=unique_collection_name  # <- This forces data isolation
+            collection_name=unique_collection_name,  # <- This forces data isolation
         )
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
@@ -135,7 +140,7 @@ def calculator(first_num: float, second_num: float, operation: str = "add") -> s
                 return f"error: Division by zero is not allowed"
             result = first_num / second_num
         else:
-            return  f"Unsupported operation '{operation}'"
+            return f"Unsupported operation '{operation}'"
 
         return str(result)
     except Exception as e:
@@ -150,9 +155,9 @@ def get_stock_price(symbol: str) -> dict:
     """
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}"
     try:
-     r = requests.get(url,timeout=10)
-     r.raise_for_status()
-     return r.json()
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json()
     except Exception as e:
         return {"error": f"Could not fetch weather for '{symbol}': {e}"}
 
@@ -166,35 +171,35 @@ def get_weather_data(city: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
         return {
-        "city": data["location"]["name"],
-        "country": data["location"]["country"],
-        "forecast": [
-            {
-                "date": day["date"],
-                "max_temp": day["day"]["maxtemp_c"],
-                "min_temp": day["day"]["mintemp_c"],
-                "condition": day["day"]["condition"]["text"],
-            }
-            for day in data["forecast"]["forecastday"]
-        ],
-    }
+            "city": data["location"]["name"],
+            "country": data["location"]["country"],
+            "forecast": [
+                {
+                    "date": day["date"],
+                    "max_temp": day["day"]["maxtemp_c"],
+                    "min_temp": day["day"]["mintemp_c"],
+                    "condition": day["day"]["condition"]["text"],
+                }
+                for day in data["forecast"]["forecastday"]
+            ],
+        }
     except Exception as e:
-     return {"error": f"Could not fetch weather for '{city}': {e}"}
+        return {"error": f"Could not fetch weather for '{city}': {e}"}
 
 
 tools = [search_tool, get_stock_price, calculator, get_weather_data, rag_tool]
-llm_with_tools = llm.bind_tools(tools,parallel_tool_calls=False)
+llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
 
 
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-def chat_node(state: ChatState, config:RunnableConfig):
+def chat_node(state: ChatState, config: RunnableConfig):
     """LLM node that may answer or request a tool call."""
     system_message = SystemMessage(
         content=(
-           "You are a highly capable AI assistant.\n"
+            "You are a highly capable AI assistant.\n"
             "CRITICAL INSTRUCTION: If the user asks ANY question about the uploaded document, "
             "you MUST immediately use the `rag_tool` to search for the answer. "
             "Do NOT rely on your general knowledge. Base your answer strictly on the tool's text excerpts. "
@@ -228,12 +233,12 @@ def delete_thread(thread_id: str):
     checkpointer.delete_thread(thread_id)
 
 
-def retrieve_all_threads():
+def retrieve_all_threads(user_id: str):
     threads = []
     seen = set()
     for checkpoint in checkpointer.list(None):
-        tid = checkpoint.config["configurable"]["thread_id"]
-        if tid not in seen:
+        tid = checkpoint.config["configurable"]["thread_id"]  # type: ignore
+        if tid.startswith(user_id) and tid not in seen:
             seen.add(tid)
             threads.append(tid)
     return threads

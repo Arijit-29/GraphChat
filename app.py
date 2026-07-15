@@ -27,35 +27,48 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
 # ------------------------ State Management ----------------------------------#
 def initialize_session():
     """Initialize core session variables required for routing."""
+    if "user_id" in st.query_params:
+        st.session_state.user_id = st.query_params["user_id"]
+    if "user_id" not in st.session_state:
+        new_id = str(uuid.uuid4())
+        st.session_state.user_id = new_id
+        st.query_params["user_id"] = new_id
     if "thread_id" not in st.session_state:
-        st.session_state.thread_id = str(uuid.uuid4())
+        st.session_state.thread_id = (
+            f"{st.session_state.user_id}_{uuid.uuid4().hex[:8]}"
+        )
     if "chat_threads" not in st.session_state:
-        st.session_state.chat_threads = retrieve_all_threads()
+        st.session_state.chat_threads = retrieve_all_threads(st.session_state.user_id)
     if st.session_state.thread_id not in st.session_state.chat_threads:
         st.session_state.chat_threads.insert(0, st.session_state.thread_id)
     if "ingested_docs" not in st.session_state:
         st.session_state["ingested_docs"] = {}
+
 
 def get_thread_state(thread_id):
     """Fetch the source-of-truth message history directly from LangGraph."""
     state = chatbot.get_state(config={"configurable": {"thread_id": thread_id}})
     return state.values.get("messages", [])
 
+
 def get_chat_title(messages):
     """Derive a clean title from the first human message."""
     for msg in messages:
         if isinstance(msg, HumanMessage):
             content = msg.content
-            return content[:30] + ("..." if len(content) > 30 else "")
+            return content[:30] + ("..." if len(content) > 30 else "")  # type: ignore
     return "New Conversation"
+
 
 def start_new_chat():
     """Reset the active thread to a fresh UUID."""
-    st.session_state.thread_id = str(uuid.uuid4())
+    st.session_state.thread_id = f"{st.session_state.user_id}_{uuid.uuid4().hex[:8]}"
     st.session_state.chat_threads.insert(0, st.session_state.thread_id)
+
 
 # ------------------------ Sidebar UI ---------------------------------------#
 initialize_session()
@@ -125,7 +138,9 @@ with st.sidebar:
             with col2:
                 if st.button("🗑", key=f"del_{thread_id}", help="Delete chat"):
                     delete_thread(thread_id)
-                    st.session_state.chat_threads = retrieve_all_threads()
+                    st.session_state.chat_threads = retrieve_all_threads(
+                        st.session_state.user_id
+                    )
                     if is_active:
                         start_new_chat()
                     st.rerun()
@@ -158,7 +173,7 @@ config = {
     "metadata": {"thread_id": st.session_state.thread_id},
 }
 
-graph_state = chatbot.get_state(config)
+graph_state = chatbot.get_state(config)  # type: ignore
 is_paused = len(graph_state.next) > 0 and graph_state.next[0] == "tools"
 
 if is_paused:
@@ -166,26 +181,33 @@ if is_paused:
     tool_calls = getattr(last_message, "tool_calls", [])
 
     # Define which tools require a delay warning
-    slow_tools = ["get_weather_data", "get_stock_price", "duckduckgo_search", "rag_tool"]
+    slow_tools = [
+        "get_weather_data",
+        "get_stock_price",
+        "duckduckgo_search",
+        "rag_tool",
+    ]
 
     # Check if ANY of the AI's requested tools are in the slow list
     needs_approval = any(tc["name"] in slow_tools for tc in tool_calls)
 
     if not needs_approval:
         # SILENT AUTO-APPROVE: The tool is fast (e.g., calculator), instantly resume
-        st.session_state.stream_input = None 
+        st.session_state.stream_input = None
 
     else:
         # MANUAL APPROVAL: The tool requires fetching external data
         tool_names = [tc["name"] for tc in tool_calls if tc["name"] in slow_tools]
 
         st.warning(f"⏳ The assistant needs to use **{', '.join(tool_names)}**.")
-        st.info("This operation connects to external services or searches large documents and may take a few moments. Do you wish to proceed?")
+        st.info(
+            "This operation connects to external services or searches large documents and may take a few moments. Do you wish to proceed?"
+        )
 
         col1, col2, col3 = st.columns([2, 2, 8])
         with col1:
             if st.button("✅ Approve", use_container_width=True):
-                st.session_state.stream_input = None 
+                st.session_state.stream_input = None
                 st.rerun()
         with col2:
             if st.button("❌ Cancel", use_container_width=True):
@@ -195,12 +217,12 @@ if is_paused:
                 for tc in tool_calls:
                     rejection_messages.append(
                         ToolMessage(
-                            content="Action cancelled by the user. State that you cannot provide the information without running the tool.", 
+                            content="Action cancelled by the user. State that you cannot provide the information without running the tool.",
                             tool_call_id=tc["id"],
-                            name=tc["name"]
+                            name=tc["name"],
                         )
                     )
-                chatbot.update_state(config, {"messages": rejection_messages}, as_node="tools")
+                chatbot.update_state(config, {"messages": rejection_messages}, as_node="tools")  # type: ignore
                 st.session_state.stream_input = None
                 st.rerun()
 
@@ -227,33 +249,43 @@ if "stream_input" in st.session_state:
         try:
             # Stream using either the user input OR 'None' if resuming
             for event_chunk, metadata in chatbot.stream(
-                st.session_state.stream_input,
-                config=config,
+                st.session_state.stream_input,  # type: ignore
+                config=config,  # type: ignore
                 stream_mode="messages",
             ):
-                if isinstance(event_chunk, AIMessageChunk) and getattr(event_chunk, "tool_call_chunks", None):
+                if isinstance(event_chunk, AIMessageChunk) and getattr(
+                    event_chunk, "tool_call_chunks", None
+                ):
                     announced_ids = set()
                     for tc in event_chunk.tool_call_chunks:
                         if tc.get("name") and tc.get("id") not in announced_ids:
                             announced_ids.add(tc["id"])
                             if tool_status is None:
                                 with status_container:
-                                    tool_status = st.status(f"⚙️ Running `{tc['name']}`...", expanded=True)
+                                    tool_status = st.status(
+                                        f"⚙️ Running `{tc['name']}`...", expanded=True
+                                    )
                             else:
                                 tool_status.write(f"⚙️ Running `{tc['name']}`...")
 
                 elif isinstance(event_chunk, ToolMessage):
                     if tool_status is None:
                         with status_container:
-                            tool_status = st.status("⚙️ Processing results...", expanded=True)
+                            tool_status = st.status(
+                                "⚙️ Processing results...", expanded=True
+                            )
                     tool_status.write(f"✅ Executed `{event_chunk.name}`")
 
                 elif isinstance(event_chunk, AIMessageChunk) and event_chunk.content:
                     if tool_status:
-                        tool_status.update(label="✅ Tools executed successfully", state="complete", expanded=False)
-                        tool_status = None 
+                        tool_status.update(
+                            label="✅ Tools executed successfully",
+                            state="complete",
+                            expanded=False,
+                        )
+                        tool_status = None
 
-                    assistant_response += event_chunk.content
+                    assistant_response += event_chunk.content  # type: ignore
                     response_placeholder.markdown(assistant_response + "▌")
 
             if assistant_response:
@@ -261,10 +293,12 @@ if "stream_input" in st.session_state:
 
         except Exception as exc:
             if tool_status:
-                tool_status.update(label="❌ Error executing tools", state="error", expanded=True)
+                tool_status.update(
+                    label="❌ Error executing tools", state="error", expanded=True
+                )
             st.error(f"❌ An error occurred: {str(exc)}")
 
     # Clean up the trigger and refresh the UI state
     del st.session_state.stream_input
-    st.session_state.chat_threads = retrieve_all_threads()
+    st.session_state.chat_threads = retrieve_all_threads(st.session_state.user_id)
     st.rerun()
